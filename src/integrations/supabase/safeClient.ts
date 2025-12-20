@@ -1,3 +1,4 @@
+// Safe Supabase client wrapper - handles missing env vars gracefully
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "./types";
 

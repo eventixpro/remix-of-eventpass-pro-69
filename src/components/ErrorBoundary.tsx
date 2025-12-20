@@ -46,6 +46,11 @@ export class ErrorBoundary extends Component<Props, State> {
                                     {this.state.error.toString()}
                                 </div>
                             )}
+                            {this.state.error?.message?.includes('Backend config missing') && (
+                                <p className="text-xs text-muted-foreground mt-2">
+                                    Try clicking "Reload Application" - environment variables may still be syncing after a recent change.
+                                </p>
+                            )}
                         </CardContent>
                         <CardFooter className="justify-center">
                             <Button
