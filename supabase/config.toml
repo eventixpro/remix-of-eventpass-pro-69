@@ -1,1 +1,16 @@
 project_id = "aikfuhueuoiagyviyoou"
+
+[functions.send-otp]
+verify_jwt = false
+
+[functions.verify-otp]
+verify_jwt = false
+
+[functions.send-ticket-email]
+verify_jwt = false
+
+[functions.public-claim-ticket]
+verify_jwt = false
+
+[functions.health-check]
+verify_jwt = false
