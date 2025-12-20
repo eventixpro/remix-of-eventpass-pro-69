@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/components/AuthProvider';
-import { supabase } from '@/integrations/supabase/client';
+import { supabase } from '@/integrations/supabase/safeClient';
 import { EventCustomization } from '@/components/EventCustomization';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft } from 'lucide-react';

@@ -13,7 +13,7 @@ import { Download, CheckCircle, Clock, MoreHorizontal, Ban, Banknote, AlertCircl
 
 import { format } from 'date-fns';
 import { toast } from 'sonner';
-import { supabase } from '@/integrations/supabase/client';
+import { supabase } from '@/integrations/supabase/safeClient';
 import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 

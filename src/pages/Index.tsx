@@ -4,7 +4,7 @@ import { useAuth } from '@/components/AuthProvider';
 import { Button } from '@/components/ui/button';
 import { Ticket, QrCode, Sparkles, LogOut, Shield, Building2 } from 'lucide-react';
 import heroImage from '@/assets/eventtix-hero.jpg';
-import { supabase } from '@/integrations/supabase/client';
+import { supabase } from '@/integrations/supabase/safeClient';
 
 const Index = () => {
   const { user, signOut } = useAuth();

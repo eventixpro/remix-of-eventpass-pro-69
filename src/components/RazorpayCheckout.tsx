@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, CreditCard, Smartphone, Wallet, Banknote } from 'lucide-react';
 import { loadRazorpayScript, initializeRazorpay, RazorpayOptions } from '@/lib/payment';
-import { supabase } from '@/integrations/supabase/client';
+import { supabase } from '@/integrations/supabase/safeClient';
 import { toast } from 'sonner';
 
 interface RazorpayCheckoutProps {
