@@ -111,12 +111,17 @@ export type Database = {
           created_at: string
           currency: string | null
           description: string | null
+          early_bird_end_date: string | null
           event_date: string
+          event_rules: string[] | null
           faq: Json | null
           gallery_images: string[] | null
+          highlights: Json | null
           id: string
           image_url: string | null
           is_free: boolean
+          menu_details: Json | null
+          original_price: number | null
           promotion_text: string | null
           schedule: Json | null
           social_links: Json | null
@@ -137,12 +142,17 @@ export type Database = {
           created_at?: string
           currency?: string | null
           description?: string | null
+          early_bird_end_date?: string | null
           event_date: string
+          event_rules?: string[] | null
           faq?: Json | null
           gallery_images?: string[] | null
+          highlights?: Json | null
           id?: string
           image_url?: string | null
           is_free?: boolean
+          menu_details?: Json | null
+          original_price?: number | null
           promotion_text?: string | null
           schedule?: Json | null
           social_links?: Json | null
@@ -163,12 +173,17 @@ export type Database = {
           created_at?: string
           currency?: string | null
           description?: string | null
+          early_bird_end_date?: string | null
           event_date?: string
+          event_rules?: string[] | null
           faq?: Json | null
           gallery_images?: string[] | null
+          highlights?: Json | null
           id?: string
           image_url?: string | null
           is_free?: boolean
+          menu_details?: Json | null
+          original_price?: number | null
           promotion_text?: string | null
           schedule?: Json | null
           social_links?: Json | null
@@ -275,6 +290,7 @@ export type Database = {
       }
       ticket_tiers: {
         Row: {
+          benefits: string[] | null
           capacity: number | null
           created_at: string
           currency: string
@@ -282,13 +298,16 @@ export type Database = {
           event_id: string
           id: string
           is_active: boolean
+          is_early_bird: boolean | null
           name: string
+          original_price: number | null
           price: number
           sort_order: number
           tickets_sold: number
           updated_at: string
         }
         Insert: {
+          benefits?: string[] | null
           capacity?: number | null
           created_at?: string
           currency?: string
@@ -296,13 +315,16 @@ export type Database = {
           event_id: string
           id?: string
           is_active?: boolean
+          is_early_bird?: boolean | null
           name: string
+          original_price?: number | null
           price?: number
           sort_order?: number
           tickets_sold?: number
           updated_at?: string
         }
         Update: {
+          benefits?: string[] | null
           capacity?: number | null
           created_at?: string
           currency?: string
@@ -310,7 +332,9 @@ export type Database = {
           event_id?: string
           id?: string
           is_active?: boolean
+          is_early_bird?: boolean | null
           name?: string
+          original_price?: number | null
           price?: number
           sort_order?: number
           tickets_sold?: number
