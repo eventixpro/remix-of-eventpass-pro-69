@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/safeClient';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { SocialShare } from '@/components/SocialShare';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { Calendar, MapPin, Download, ArrowLeft, Ticket, Clock, HelpCircle, Image as ImageIcon, CalendarPlus, Users, AlertCircle, Video, Instagram, Facebook, Twitter, Linkedin, Youtube, Globe, Award, CheckCircle2 } from 'lucide-react';
+import { Calendar, MapPin, Download, ArrowLeft, Ticket, Clock, HelpCircle, Image as ImageIcon, CalendarPlus, Users, AlertCircle, Video, Instagram, Facebook, Twitter, Linkedin, Youtube, Globe, Award, CheckCircle2, Mail } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { z } from 'zod';
@@ -17,11 +17,6 @@ import { RazorpayCheckout } from '@/components/RazorpayCheckout';
 import { downloadICS } from '@/utils/calendar';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import {
-  InputOTP,
-  InputOTPGroup,
-  InputOTPSlot,
-} from "@/components/ui/input-otp";
 
 interface SelectedTier {
   id: string;
@@ -35,15 +30,18 @@ const claimSchema = z.object({
   phone: z.string().trim().min(10, "Valid phone number required").max(20)
 });
 
+// Key for storing pending ticket data in localStorage
+const PENDING_TICKET_KEY = 'pending_ticket_claim';
+
 const PublicEvent = () => {
   const { eventId } = useParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [event, setEvent] = useState<any>(null);
   const [claimedTicket, setClaimedTicket] = useState<any>(null);
   const [formData, setFormData] = useState({ name: '', email: '', phone: '' });
   const [loading, setLoading] = useState(false);
-  const [showOtpInput, setShowOtpInput] = useState(false);
-  const [otp, setOtp] = useState("");
+  const [awaitingEmailVerification, setAwaitingEmailVerification] = useState(false);
   const [selectedTier, setSelectedTier] = useState<SelectedTier | null>(null);
   const [hasTiers, setHasTiers] = useState(false);
 
@@ -84,6 +82,68 @@ const PublicEvent = () => {
     fetchEvent();
   }, [eventId, navigate]);
 
+  // Check for magic link verification on page load
+  useEffect(() => {
+    const handleMagicLinkVerification = async () => {
+      // Check if we have a pending ticket claim in localStorage
+      const pendingData = localStorage.getItem(PENDING_TICKET_KEY);
+      if (!pendingData) return;
+
+      const pending = JSON.parse(pendingData);
+      
+      // Check if this is for the current event
+      if (pending.eventId !== eventId) return;
+
+      // Check if user is authenticated (magic link clicked)
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session && session.user?.email?.toLowerCase() === pending.email.toLowerCase()) {
+        // Email verified! Restore form data and proceed
+        setFormData({
+          name: pending.name,
+          email: pending.email,
+          phone: pending.phone
+        });
+        
+        if (pending.tierId) {
+          setSelectedTier({
+            id: pending.tierId,
+            name: pending.tierName,
+            price: pending.tierPrice
+          });
+        }
+
+        setIsEmailVerified(true);
+        toast.success('Email verified successfully!');
+        
+        // Clear pending data
+        localStorage.removeItem(PENDING_TICKET_KEY);
+
+        // Sign out the temporary session (we don't need the user to stay logged in)
+        await supabase.auth.signOut();
+
+        // Proceed with ticket creation or payment
+        if (pending.isFree) {
+          // For free events, create ticket directly
+          // We need to wait for event data to load
+        } else {
+          setShowPaymentDialog(true);
+        }
+      }
+    };
+
+    // Small delay to ensure event data is loaded
+    const timer = setTimeout(handleMagicLinkVerification, 500);
+    return () => clearTimeout(timer);
+  }, [eventId, event]);
+
+  // Auto-create ticket for free events after verification
+  useEffect(() => {
+    if (isEmailVerified && event?.is_free && formData.name && !claimedTicket) {
+      createTicket();
+    }
+  }, [isEmailVerified, event, formData, claimedTicket]);
+
   const handleClaim = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -102,61 +162,53 @@ const PublicEvent = () => {
         }
       }
 
-      // Use Supabase Auth OTP - no external email service needed
+      // Store pending ticket data in localStorage before sending magic link
+      const pendingData = {
+        eventId,
+        name: validated.name,
+        email: validated.email,
+        phone: validated.phone,
+        tierId: selectedTier?.id || null,
+        tierName: selectedTier?.name || null,
+        tierPrice: selectedTier?.price || null,
+        isFree: event.is_free,
+        timestamp: Date.now()
+      };
+      localStorage.setItem(PENDING_TICKET_KEY, JSON.stringify(pendingData));
+
+      // Send magic link to verify email
+      const redirectUrl = `${window.location.origin}/e/${eventId}`;
       const { error } = await supabase.auth.signInWithOtp({
         email: validated.email,
         options: {
-          shouldCreateUser: false, // Don't create user account - just verify email
+          shouldCreateUser: true, // Need to create user for magic link to work
+          emailRedirectTo: redirectUrl,
         }
       });
 
       if (error) {
-        toast.error(error.message || 'Failed to send verification code');
+        toast.error(error.message || 'Failed to send verification email');
+        localStorage.removeItem(PENDING_TICKET_KEY);
         setLoading(false);
         return;
       }
 
-      setShowOtpInput(true);
-      toast.success(`Verification code sent to ${validated.email}`);
+      setAwaitingEmailVerification(true);
+      toast.success(`Verification link sent to ${validated.email}`);
       setLoading(false);
 
     } catch (error: any) {
       if (error instanceof z.ZodError) {
         toast.error(error.errors[0].message);
       } else {
-        toast.error('Failed to send verification code. Please try again.');
+        toast.error('Failed to send verification email. Please try again.');
         console.error(error);
       }
+      localStorage.removeItem(PENDING_TICKET_KEY);
       setLoading(false);
     }
   };
 
-  const verifyOtp = async () => {
-    setLoading(true);
-    try {
-      // Use Supabase Auth OTP verification
-      const { error } = await supabase.auth.verifyOtp({
-        email: formData.email,
-        token: otp,
-        type: 'email'
-      });
-
-      if (error) throw new Error(error.message || "Invalid verification code");
-
-      setIsEmailVerified(true);
-
-      if (event.is_free) {
-        await createTicket();
-      } else {
-        setShowPaymentDialog(true);
-        setLoading(false);
-      }
-
-    } catch (error: any) {
-      toast.error(error.message || 'Invalid verification code');
-      setLoading(false);
-    }
-  };
 
   const createTicket = async (paymentType: 'online' | 'venue' = 'online') => {
     try {
@@ -565,7 +617,7 @@ const PublicEvent = () => {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {!showOtpInput ? (
+                  {!awaitingEmailVerification && !isEmailVerified ? (
                     <form onSubmit={handleClaim} className="space-y-4">
                       {hasTiers && (
                         <TierSelector
@@ -616,7 +668,7 @@ const PublicEvent = () => {
                           required
                           placeholder="john@example.com"
                         />
-                        <p className="text-xs text-muted-foreground">We'll verify this email with an OTP.</p>
+                        <p className="text-xs text-muted-foreground">We'll send a verification link to this email.</p>
                       </div>
 
                       <Button
@@ -625,43 +677,59 @@ const PublicEvent = () => {
                         size="lg"
                         disabled={loading || (hasTiers && !selectedTier)}
                       >
-                        {loading ? 'Sending OTP...' : 'Verify Email & Continue'}
+                        {loading ? 'Sending Link...' : 'Verify Email & Continue'}
                       </Button>
                     </form>
-                  ) : (
+                  ) : awaitingEmailVerification ? (
                     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
-                      <div className="text-center space-y-2">
-                        <h3 className="font-semibold text-lg">Verify Email Address</h3>
+                      <div className="text-center space-y-4">
+                        <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto">
+                          <Mail className="w-8 h-8 text-primary" />
+                        </div>
+                        <h3 className="font-semibold text-lg">Check Your Email</h3>
                         <p className="text-sm text-muted-foreground">
-                          Enter the 6-digit code sent to <span className="text-foreground font-medium">{formData.email}</span>
+                          We've sent a verification link to <span className="text-foreground font-medium">{formData.email}</span>
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          Click the link in the email to verify your address and complete your registration.
                         </p>
                       </div>
 
-                      <div className="flex justify-center my-4">
-                        <InputOTP
-                          maxLength={6}
-                          value={otp}
-                          onChange={(value) => setOtp(value)}
-                        >
-                          <InputOTPGroup>
-                            <InputOTPSlot index={0} />
-                            <InputOTPSlot index={1} />
-                            <InputOTPSlot index={2} />
-                            <InputOTPSlot index={3} />
-                            <InputOTPSlot index={4} />
-                            <InputOTPSlot index={5} />
-                          </InputOTPGroup>
-                        </InputOTP>
-                      </div>
+                      <Alert className="bg-primary/5 border-primary/20">
+                        <Mail className="h-4 w-4" />
+                        <AlertDescription>
+                          Don't see the email? Check your spam folder or click below to try again.
+                        </AlertDescription>
+                      </Alert>
 
                       <div className="flex gap-3">
-                        <Button variant="outline" className="flex-1" onClick={() => setShowOtpInput(false)}>
-                          Change Details
+                        <Button 
+                          variant="outline" 
+                          className="flex-1" 
+                          onClick={() => {
+                            setAwaitingEmailVerification(false);
+                            localStorage.removeItem(PENDING_TICKET_KEY);
+                          }}
+                        >
+                          Change Email
                         </Button>
-                        <Button className="flex-1" onClick={verifyOtp} disabled={otp.length !== 6 || loading}>
-                          {loading ? 'Verifying...' : (event.is_free ? 'Claim Ticket' : 'Proceed to Payment')}
+                        <Button 
+                          className="flex-1" 
+                          onClick={handleClaim}
+                          disabled={loading}
+                        >
+                          {loading ? 'Sending...' : 'Resend Link'}
                         </Button>
                       </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-4 animate-in fade-in">
+                      <Alert className="bg-green-500/10 border-green-500/20">
+                        <CheckCircle2 className="h-4 w-4 text-green-500" />
+                        <AlertDescription className="text-green-600">
+                          Email verified! Processing your ticket...
+                        </AlertDescription>
+                      </Alert>
                     </div>
                   )}
                 </CardContent>
