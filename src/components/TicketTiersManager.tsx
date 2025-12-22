@@ -5,7 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
-import { Plus, Trash2, GripVertical, Ticket, IndianRupee } from 'lucide-react';
+import { Plus, Trash2, GripVertical, Ticket, IndianRupee, Zap } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/safeClient';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
@@ -20,6 +20,9 @@ interface TicketTier {
   tickets_sold?: number;
   is_active: boolean;
   sort_order: number;
+  benefits: string[];
+  original_price: number | null;
+  is_early_bird: boolean;
 }
 
 interface TicketTiersManagerProps {
@@ -62,7 +65,10 @@ export const TicketTiersManager = ({ eventId, isFreeEvent }: TicketTiersManagerP
       currency: 'INR',
       capacity: null,
       is_active: true,
-      sort_order: tiers.length
+      sort_order: tiers.length,
+      benefits: [],
+      original_price: null,
+      is_early_bird: false
     };
     setTiers([...tiers, newTier]);
   };
@@ -131,7 +137,10 @@ export const TicketTiersManager = ({ eventId, isFreeEvent }: TicketTiersManagerP
             currency: tier.currency,
             capacity: tier.capacity,
             is_active: tier.is_active,
-            sort_order: tier.sort_order
+            sort_order: tier.sort_order,
+            benefits: tier.benefits || [],
+            original_price: tier.original_price,
+            is_early_bird: tier.is_early_bird
           })
           .eq('id', tier.id);
 
@@ -151,7 +160,10 @@ export const TicketTiersManager = ({ eventId, isFreeEvent }: TicketTiersManagerP
               currency: t.currency,
               capacity: t.capacity,
               is_active: t.is_active,
-              sort_order: t.sort_order
+              sort_order: t.sort_order,
+              benefits: t.benefits || [],
+              original_price: t.original_price,
+              is_early_bird: t.is_early_bird
             }))
           );
 
@@ -306,6 +318,54 @@ export const TicketTiersManager = ({ eventId, isFreeEvent }: TicketTiersManagerP
                     </p>
                   )}
                 </div>
+
+                {/* Benefits */}
+                <div className="space-y-2">
+                  <Label>Benefits (one per line)</Label>
+                  <Textarea
+                    placeholder="e.g., Priority entry&#10;Free parking&#10;VIP lounge access"
+                    value={(tier.benefits || []).join('\n')}
+                    onChange={(e) => updateTier(index, 'benefits', e.target.value.split('\n').filter(b => b.trim()))}
+                    rows={3}
+                  />
+                  <p className="text-xs text-muted-foreground">Each line becomes a bullet point on the ticket</p>
+                </div>
+
+                {/* Early Bird Pricing */}
+                {!isFreeEvent && (
+                  <div className="p-3 rounded-lg bg-muted/50 space-y-3">
+                    <div className="flex items-center gap-3">
+                      <Switch
+                        checked={tier.is_early_bird}
+                        onCheckedChange={(checked) => updateTier(index, 'is_early_bird', checked)}
+                      />
+                      <Label className="flex items-center gap-2">
+                        <Zap className="w-4 h-4 text-primary" />
+                        Early Bird Pricing
+                      </Label>
+                    </div>
+                    {tier.is_early_bird && (
+                      <div className="space-y-2">
+                        <Label>Original Price (₹)</Label>
+                        <div className="relative">
+                          <IndianRupee className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            placeholder="Original price (strikethrough)"
+                            value={tier.original_price || ''}
+                            onChange={(e) => updateTier(index, 'original_price', e.target.value ? parseFloat(e.target.value) : null)}
+                            className="pl-9"
+                          />
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Shows as strikethrough to highlight the discount
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
 
