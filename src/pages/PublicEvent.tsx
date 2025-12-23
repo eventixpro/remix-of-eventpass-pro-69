@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { SocialShare } from '@/components/SocialShare';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { Calendar, MapPin, Download, ArrowLeft, Ticket, Clock, HelpCircle, Image as ImageIcon, CalendarPlus, Users, AlertCircle, Video, Instagram, Facebook, Twitter, Linkedin, Youtube, Globe, Award, CheckCircle2, Mail } from 'lucide-react';
+import { Calendar, MapPin, Download, ArrowLeft, Ticket, Clock, HelpCircle, Image as ImageIcon, CalendarPlus, Users, AlertCircle, Video, Instagram, Facebook, Twitter, Linkedin, Youtube, Globe, Award, CheckCircle2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { z } from 'zod';
@@ -30,8 +30,6 @@ const claimSchema = z.object({
   phone: z.string().trim().min(10, "Valid phone number required").max(20)
 });
 
-// Key for storing pending ticket data in localStorage
-const PENDING_TICKET_KEY = 'pending_ticket_claim';
 
 const PublicEvent = () => {
   const { eventId } = useParams();
@@ -41,12 +39,10 @@ const PublicEvent = () => {
   const [claimedTicket, setClaimedTicket] = useState<any>(null);
   const [formData, setFormData] = useState({ name: '', email: '', phone: '' });
   const [loading, setLoading] = useState(false);
-  const [awaitingEmailVerification, setAwaitingEmailVerification] = useState(false);
   const [selectedTier, setSelectedTier] = useState<SelectedTier | null>(null);
   const [hasTiers, setHasTiers] = useState(false);
 
   // Payment States
-  const [isEmailVerified, setIsEmailVerified] = useState(false);
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
   const [transactionId, setTransactionId] = useState("");
 
@@ -82,67 +78,7 @@ const PublicEvent = () => {
     fetchEvent();
   }, [eventId, navigate]);
 
-  // Check for magic link verification on page load
-  useEffect(() => {
-    const handleMagicLinkVerification = async () => {
-      // Check if we have a pending ticket claim in localStorage
-      const pendingData = localStorage.getItem(PENDING_TICKET_KEY);
-      if (!pendingData) return;
-
-      const pending = JSON.parse(pendingData);
-      
-      // Check if this is for the current event
-      if (pending.eventId !== eventId) return;
-
-      // Check if user is authenticated (magic link clicked)
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (session && session.user?.email?.toLowerCase() === pending.email.toLowerCase()) {
-        // Email verified! Restore form data and proceed
-        setFormData({
-          name: pending.name,
-          email: pending.email,
-          phone: pending.phone
-        });
-        
-        if (pending.tierId) {
-          setSelectedTier({
-            id: pending.tierId,
-            name: pending.tierName,
-            price: pending.tierPrice
-          });
-        }
-
-        setIsEmailVerified(true);
-        toast.success('Email verified successfully!');
-        
-        // Clear pending data
-        localStorage.removeItem(PENDING_TICKET_KEY);
-
-        // Sign out the temporary session (we don't need the user to stay logged in)
-        await supabase.auth.signOut();
-
-        // Proceed with ticket creation or payment
-        if (pending.isFree) {
-          // For free events, create ticket directly
-          // We need to wait for event data to load
-        } else {
-          setShowPaymentDialog(true);
-        }
-      }
-    };
-
-    // Small delay to ensure event data is loaded
-    const timer = setTimeout(handleMagicLinkVerification, 500);
-    return () => clearTimeout(timer);
-  }, [eventId, event]);
-
-  // Auto-create ticket for free events after verification
-  useEffect(() => {
-    if (isEmailVerified && event?.is_free && formData.name && !claimedTicket) {
-      createTicket();
-    }
-  }, [isEmailVerified, event, formData, claimedTicket]);
+  // No email verification needed - removed magic link flow
 
   const handleClaim = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -162,49 +98,22 @@ const PublicEvent = () => {
         }
       }
 
-      // Store pending ticket data in localStorage before sending magic link
-      const pendingData = {
-        eventId,
-        name: validated.name,
-        email: validated.email,
-        phone: validated.phone,
-        tierId: selectedTier?.id || null,
-        tierName: selectedTier?.name || null,
-        tierPrice: selectedTier?.price || null,
-        isFree: event.is_free,
-        timestamp: Date.now()
-      };
-      localStorage.setItem(PENDING_TICKET_KEY, JSON.stringify(pendingData));
-
-      // Send magic link to verify email
-      const redirectUrl = `${window.location.origin}/e/${eventId}`;
-      const { error } = await supabase.auth.signInWithOtp({
-        email: validated.email,
-        options: {
-          shouldCreateUser: true, // Need to create user for magic link to work
-          emailRedirectTo: redirectUrl,
-        }
-      });
-
-      if (error) {
-        toast.error(error.message || 'Failed to send verification email');
-        localStorage.removeItem(PENDING_TICKET_KEY);
-        setLoading(false);
-        return;
+      // For free events, create ticket directly
+      if (event.is_free) {
+        await createTicket('online');
+      } else {
+        // For paid events, show payment dialog
+        setShowPaymentDialog(true);
       }
-
-      setAwaitingEmailVerification(true);
-      toast.success(`Verification link sent to ${validated.email}`);
+      
       setLoading(false);
-
     } catch (error: any) {
       if (error instanceof z.ZodError) {
         toast.error(error.errors[0].message);
       } else {
-        toast.error('Failed to send verification email. Please try again.');
+        toast.error('Failed to process. Please try again.');
         console.error(error);
       }
-      localStorage.removeItem(PENDING_TICKET_KEY);
       setLoading(false);
     }
   };
@@ -617,121 +526,68 @@ const PublicEvent = () => {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {!awaitingEmailVerification && !isEmailVerified ? (
-                    <form onSubmit={handleClaim} className="space-y-4">
-                      {hasTiers && (
-                        <TierSelector
-                          eventId={eventId!}
-                          isFreeEvent={event.is_free}
-                          selectedTierId={selectedTier?.id || null}
-                          onSelect={(tier) => setSelectedTier(tier ? { id: tier.id, name: tier.name, price: tier.price } : null)}
-                        />
-                      )}
+                  <form onSubmit={handleClaim} className="space-y-4">
+                    {hasTiers && (
+                      <TierSelector
+                        eventId={eventId!}
+                        isFreeEvent={event.is_free}
+                        selectedTierId={selectedTier?.id || null}
+                        onSelect={(tier) => setSelectedTier(tier ? { id: tier.id, name: tier.name, price: tier.price } : null)}
+                      />
+                    )}
 
-                      {!event.is_free && !hasTiers && (
-                        <div className="p-4 bg-muted rounded-lg flex justify-between items-center">
-                          <span className="font-medium">Standard Ticket</span>
-                          <span className="text-xl font-bold text-primary">₹{event.ticket_price}</span>
-                        </div>
-                      )}
-
-                      <div className="grid md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="name">Full Name</Label>
-                          <Input
-                            id="name"
-                            value={formData.name}
-                            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                            required
-                            placeholder="John Doe"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="phone">Phone (WhatsApp)</Label>
-                          <Input
-                            id="phone"
-                            value={formData.phone}
-                            onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                            required
-                            placeholder="+91 9876543210"
-                          />
-                        </div>
+                    {!event.is_free && !hasTiers && (
+                      <div className="p-4 bg-muted rounded-lg flex justify-between items-center">
+                        <span className="font-medium">Standard Ticket</span>
+                        <span className="text-xl font-bold text-primary">₹{event.ticket_price}</span>
                       </div>
+                    )}
 
+                    <div className="grid md:grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label htmlFor="email">Email Address</Label>
+                        <Label htmlFor="name">Full Name</Label>
                         <Input
-                          id="email"
-                          type="email"
-                          value={formData.email}
-                          onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                          id="name"
+                          value={formData.name}
+                          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                           required
-                          placeholder="john@example.com"
+                          placeholder="John Doe"
                         />
-                        <p className="text-xs text-muted-foreground">We'll send a verification link to this email.</p>
                       </div>
-
-                      <Button
-                        type="submit"
-                        className="w-full bg-gradient-to-r from-primary to-purple-600 hover:from-primary/90 hover:to-purple-600/90"
-                        size="lg"
-                        disabled={loading || (hasTiers && !selectedTier)}
-                      >
-                        {loading ? 'Sending Link...' : 'Verify Email & Continue'}
-                      </Button>
-                    </form>
-                  ) : awaitingEmailVerification ? (
-                    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
-                      <div className="text-center space-y-4">
-                        <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto">
-                          <Mail className="w-8 h-8 text-primary" />
-                        </div>
-                        <h3 className="font-semibold text-lg">Check Your Email</h3>
-                        <p className="text-sm text-muted-foreground">
-                          We've sent a verification link to <span className="text-foreground font-medium">{formData.email}</span>
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          Click the link in the email to verify your address and complete your registration.
-                        </p>
-                      </div>
-
-                      <Alert className="bg-primary/5 border-primary/20">
-                        <Mail className="h-4 w-4" />
-                        <AlertDescription>
-                          Don't see the email? Check your spam folder or click below to try again.
-                        </AlertDescription>
-                      </Alert>
-
-                      <div className="flex gap-3">
-                        <Button 
-                          variant="outline" 
-                          className="flex-1" 
-                          onClick={() => {
-                            setAwaitingEmailVerification(false);
-                            localStorage.removeItem(PENDING_TICKET_KEY);
-                          }}
-                        >
-                          Change Email
-                        </Button>
-                        <Button 
-                          className="flex-1" 
-                          onClick={handleClaim}
-                          disabled={loading}
-                        >
-                          {loading ? 'Sending...' : 'Resend Link'}
-                        </Button>
+                      <div className="space-y-2">
+                        <Label htmlFor="phone">Phone (WhatsApp)</Label>
+                        <Input
+                          id="phone"
+                          value={formData.phone}
+                          onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                          required
+                          placeholder="+91 9876543210"
+                        />
                       </div>
                     </div>
-                  ) : (
-                    <div className="space-y-4 animate-in fade-in">
-                      <Alert className="bg-green-500/10 border-green-500/20">
-                        <CheckCircle2 className="h-4 w-4 text-green-500" />
-                        <AlertDescription className="text-green-600">
-                          Email verified! Processing your ticket...
-                        </AlertDescription>
-                      </Alert>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="email">Email Address</Label>
+                      <Input
+                        id="email"
+                        type="email"
+                        value={formData.email}
+                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                        required
+                        placeholder="john@example.com"
+                      />
+                      <p className="text-xs text-muted-foreground">Your ticket will be sent to this email after payment.</p>
                     </div>
-                  )}
+
+                    <Button
+                      type="submit"
+                      className="w-full bg-gradient-to-r from-primary to-purple-600 hover:from-primary/90 hover:to-purple-600/90"
+                      size="lg"
+                      disabled={loading || (hasTiers && !selectedTier)}
+                    >
+                      {loading ? 'Processing...' : event.is_free ? 'Get Free Ticket' : 'Continue to Payment'}
+                    </Button>
+                  </form>
                 </CardContent>
               </Card>
             )}
