@@ -31,6 +31,7 @@ import PWAUpdateNotification from "@/components/PWAUpdateNotification";
 import MobileSettings from "./pages/MobileSettings";
 import Analytics from "./pages/Analytics";
 import GlobalTickets from "./pages/GlobalTickets";
+import PendingTicket from "./pages/PendingTicket";
 
 const queryClient = new QueryClient();
 
@@ -48,6 +49,7 @@ const App = () => (
               <Route path="/pricing" element={<Pricing />} />
               <Route path="/business-signup" element={<BusinessSignup />} />
               <Route path="/e/:eventId" element={<PublicEvent />} />
+              <Route path="/e/:eventId/pending" element={<PendingTicket />} />
               <Route path="/public-events" element={<PublicEvents />} />
               <Route path="/ticket/:ticketId" element={<TicketViewer />} />
 

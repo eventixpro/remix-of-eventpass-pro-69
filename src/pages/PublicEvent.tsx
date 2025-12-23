@@ -13,7 +13,7 @@ import { toast } from 'sonner';
 import { z } from 'zod';
 import { TicketCard } from '@/components/TicketCard';
 import { TierSelector } from '@/components/TierSelector';
-import { RazorpayCheckout } from '@/components/RazorpayCheckout';
+import { QRCodeSVG } from 'qrcode.react';
 import { downloadICS } from '@/utils/calendar';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -45,6 +45,11 @@ const PublicEvent = () => {
   // Payment States
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
   const [transactionId, setTransactionId] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<'upi' | 'cash' | null>(null);
+  const [submittingPayment, setSubmittingPayment] = useState(false);
+
+  // UPI ID for the event organizer (you can fetch from event or use default)
+  const organizerUpiId = "eventtix@upi"; // Default UPI ID - should be fetched from event settings
 
   useEffect(() => {
     if (!eventId) return;
@@ -618,54 +623,161 @@ const PublicEvent = () => {
         )}
 
         {/* Payment Dialog */}
-        <Dialog open={showPaymentDialog} onOpenChange={setShowPaymentDialog}>
-          <DialogContent className="sm:max-w-lg">
+        <Dialog open={showPaymentDialog} onOpenChange={(open) => {
+          setShowPaymentDialog(open);
+          if (!open) {
+            setPaymentMethod(null);
+            setTransactionId("");
+          }
+        }}>
+          <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Complete Payment</DialogTitle>
               <DialogDescription>
-                Choose your preferred payment method to buy your ticket instantly.
+                Pay ₹{ticketPrice} for {selectedTier?.name || 'Standard'} ticket
               </DialogDescription>
             </DialogHeader>
 
-            <RazorpayCheckout
-              amount={ticketPrice}
-              description={`${event.title} - ${selectedTier ? selectedTier.name : 'Standard'} Ticket`}
-              orderId="" // This will be set when we create the order
-              customerInfo={{
-                name: formData.name,
-                email: formData.email,
-                phone: formData.phone,
-              }}
-              onSuccess={async (paymentResponse) => {
-                // For localhost development, simulate successful payment
-                if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-                  setTransactionId(`LOCAL_${Date.now()}`);
-                  await createTicket('online');
-                  toast.success('Payment successful! (Development mode)');
-                  return;
-                }
+            {!paymentMethod ? (
+              // Payment Method Selection
+              <div className="space-y-4 py-4">
+                <p className="text-center text-muted-foreground mb-4">Choose your payment method:</p>
+                
+                <Button
+                  onClick={() => setPaymentMethod('upi')}
+                  className="w-full h-16 text-lg bg-gradient-to-r from-green-600 to-green-500 hover:from-green-700 hover:to-green-600"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl">📱</span>
+                    <div className="text-left">
+                      <div className="font-bold">Pay via UPI</div>
+                      <div className="text-xs opacity-80">GPay, PhonePe, Paytm, BHIM</div>
+                    </div>
+                  </div>
+                </Button>
 
-                // Production: Update ticket with payment reference
-                setTransactionId(paymentResponse.paymentId);
-                // Create ticket with payment confirmation
-                await createTicket('online');
-              }}
-              onFailure={(error) => {
-                console.error('Payment failed:', error);
-                toast.error('Payment failed. Please try again.');
-              }}
-            />
+                <Button
+                  onClick={() => setPaymentMethod('cash')}
+                  variant="outline"
+                  className="w-full h-16 text-lg border-2"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl">💵</span>
+                    <div className="text-left">
+                      <div className="font-bold">Pay Cash at Venue</div>
+                      <div className="text-xs text-muted-foreground">Get a booking token</div>
+                    </div>
+                  </div>
+                </Button>
+              </div>
+            ) : paymentMethod === 'upi' ? (
+              // UPI Payment Flow
+              <div className="space-y-6 py-4">
+                <div className="text-center">
+                  <div className="bg-white p-4 rounded-xl inline-block mb-4">
+                    <QRCodeSVG 
+                      value={`upi://pay?pa=${organizerUpiId}&pn=EventTix&am=${ticketPrice}&cu=INR&tn=${encodeURIComponent(event.title + ' Ticket')}`}
+                      size={180}
+                      level="H"
+                    />
+                  </div>
+                  <p className="font-mono text-lg font-bold text-primary">{organizerUpiId}</p>
+                  <p className="text-sm text-muted-foreground mt-1">Scan QR or pay to above UPI ID</p>
+                </div>
 
-            <div className="flex justify-center pt-4 border-t">
-              <Button
-                variant="outline"
-                onClick={() => createTicket('venue')}
-                disabled={loading}
-                className="border-primary text-primary hover:bg-primary/10"
-              >
-                Pay at Venue Instead
-              </Button>
-            </div>
+                <div className="bg-gradient-to-r from-primary/10 to-purple-500/10 border border-primary/20 rounded-lg p-4">
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">Amount to Pay</span>
+                    <span className="text-2xl font-bold text-primary">₹{ticketPrice}</span>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <Label htmlFor="transactionId" className="text-sm font-medium">
+                    Enter UPI Transaction ID / UTR Number *
+                  </Label>
+                  <Input
+                    id="transactionId"
+                    placeholder="e.g., 123456789012 or UTR number"
+                    value={transactionId}
+                    onChange={(e) => setTransactionId(e.target.value)}
+                    className="font-mono"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Find this in your UPI app's transaction history after payment
+                  </p>
+                </div>
+
+                <Button
+                  onClick={async () => {
+                    if (!transactionId.trim()) {
+                      toast.error('Please enter the transaction ID');
+                      return;
+                    }
+                    setSubmittingPayment(true);
+                    await createTicket('online');
+                    setSubmittingPayment(false);
+                  }}
+                  disabled={!transactionId.trim() || submittingPayment}
+                  className="w-full h-12 text-lg bg-gradient-to-r from-green-600 to-green-500 hover:from-green-700 hover:to-green-600"
+                >
+                  {submittingPayment ? 'Processing...' : 'I have paid - Submit for Verification'}
+                </Button>
+
+                <Button
+                  variant="ghost"
+                  onClick={() => setPaymentMethod(null)}
+                  className="w-full"
+                >
+                  ← Back to payment methods
+                </Button>
+              </div>
+            ) : (
+              // Cash Payment Flow
+              <div className="space-y-6 py-4">
+                <div className="text-center">
+                  <div className="bg-yellow-500/20 p-6 rounded-full inline-block mb-4">
+                    <span className="text-5xl">🎫</span>
+                  </div>
+                  <h3 className="text-xl font-bold mb-2">Pay at Venue</h3>
+                  <p className="text-muted-foreground">
+                    You'll receive a booking token. Pay ₹{ticketPrice} at the venue to activate your ticket.
+                  </p>
+                </div>
+
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4 text-sm">
+                  <div className="flex gap-2">
+                    <AlertCircle className="w-5 h-5 text-yellow-500 shrink-0" />
+                    <div>
+                      <p className="font-medium text-yellow-600">Important</p>
+                      <p className="text-muted-foreground">
+                        Your booking is not confirmed until payment is made at the venue. Arrive early to complete payment.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <Button
+                  onClick={async () => {
+                    setSubmittingPayment(true);
+                    await createTicket('venue');
+                    setSubmittingPayment(false);
+                  }}
+                  disabled={submittingPayment}
+                  className="w-full h-12 text-lg"
+                >
+                  {submittingPayment ? 'Processing...' : 'Get Booking Token'}
+                </Button>
+
+                <Button
+                  variant="ghost"
+                  onClick={() => setPaymentMethod(null)}
+                  className="w-full"
+                >
+                  ← Back to payment methods
+                </Button>
+              </div>
+            )}
           </DialogContent>
         </Dialog>
 

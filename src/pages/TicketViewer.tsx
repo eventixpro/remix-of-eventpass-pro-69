@@ -4,10 +4,12 @@ import { supabase } from '@/integrations/supabase/safeClient';
 import { Button } from '@/components/ui/button';
 import { TicketCard } from '@/components/TicketCard';
 import { SocialShare } from '@/components/SocialShare';
-import { ArrowLeft, Download, Share2, Home } from 'lucide-react';
+import { ArrowLeft, Download, Share2, Home, Clock, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import html2canvas from 'html2canvas';
+import { differenceInHours, format } from 'date-fns';
 
 const TicketViewer = () => {
   const { ticketId } = useParams();
@@ -162,6 +164,31 @@ const TicketViewer = () => {
 
   if (!ticket) return null;
 
+  // Check payment status and download window
+  const isPending = ticket.payment_status === 'pending';
+  const isPayAtVenue = ticket.payment_status === 'pay_at_venue';
+  const isVerified = ticket.payment_status === 'verified' || ticket.payment_status === 'paid';
+  const isFree = !ticket.payment_status || ticket.payment_status === 'paid';
+
+  // Calculate download window (6 hours from verified_at)
+  let canDownload = true;
+  let hoursRemaining = 0;
+  let downloadExpired = false;
+
+  if (ticket.verified_at && isVerified) {
+    const verifiedTime = new Date(ticket.verified_at);
+    const hoursSinceVerification = differenceInHours(new Date(), verifiedTime);
+    hoursRemaining = Math.max(0, 6 - hoursSinceVerification);
+    downloadExpired = hoursSinceVerification > 6;
+    canDownload = !downloadExpired;
+  }
+
+  // Allow download for free events and pay at venue
+  if (isFree || isPayAtVenue) {
+    canDownload = true;
+    downloadExpired = false;
+  }
+
   return (
     <div className="min-h-screen p-8">
       {/* Animated background */}
@@ -184,74 +211,121 @@ const TicketViewer = () => {
         </div>
 
         <div className="space-y-6">
+          {/* Pending Payment Alert */}
+          {isPending && (
+            <Alert className="border-yellow-500/50 bg-yellow-500/10">
+              <Clock className="h-4 w-4 text-yellow-500" />
+              <AlertDescription className="text-yellow-600">
+                <strong>Payment Pending Verification</strong>
+                <p className="mt-1">Your payment is being verified. You can download your ticket once approved.</p>
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {/* Download Window Expired Alert */}
+          {downloadExpired && !isFree && !isPayAtVenue && (
+            <Alert className="border-red-500/50 bg-red-500/10">
+              <AlertCircle className="h-4 w-4 text-red-500" />
+              <AlertDescription className="text-red-600">
+                <strong>Download Window Expired</strong>
+                <p className="mt-1">The 6-hour download window has passed. Please contact the event organizer for assistance.</p>
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {/* Download Window Info */}
+          {isVerified && hoursRemaining > 0 && !isFree && (
+            <Alert className="border-green-500/50 bg-green-500/10">
+              <Clock className="h-4 w-4 text-green-500" />
+              <AlertDescription className="text-green-600">
+                <strong>Payment Verified!</strong>
+                <p className="mt-1">You have {hoursRemaining} hour{hoursRemaining !== 1 ? 's' : ''} remaining to download your ticket.</p>
+              </AlertDescription>
+            </Alert>
+          )}
+
           <div id="ticket-card">
             <TicketCard ticket={ticket} />
           </div>
 
           {/* Download Options */}
-          <Card className="border-2 border-primary/20 bg-gradient-to-br from-card via-card to-card/80">
-            <CardContent className="pt-6 space-y-4">
-              <div className="text-center mb-4">
-                <h3 className="text-lg font-semibold mb-1">Download Your Ticket</h3>
-                <p className="text-sm text-muted-foreground">Save as image for offline access</p>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-3">
-                <Button 
-                  variant="outline" 
-                  className="w-full border-primary/30 hover:bg-primary/10" 
-                  onClick={() => handleDownload('png')}
-                  disabled={downloading}
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  {downloading ? 'Generating...' : 'PNG'}
-                </Button>
-                <Button 
-                  variant="outline" 
-                  className="w-full border-primary/30 hover:bg-primary/10" 
-                  onClick={() => handleDownload('jpg')}
-                  disabled={downloading}
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  {downloading ? 'Generating...' : 'JPG'}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+          {canDownload && !isPending ? (
+            <Card className="border-2 border-primary/20 bg-gradient-to-br from-card via-card to-card/80">
+              <CardContent className="pt-6 space-y-4">
+                <div className="text-center mb-4">
+                  <h3 className="text-lg font-semibold mb-1">Download Your Ticket</h3>
+                  <p className="text-sm text-muted-foreground">Save as image for offline access</p>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <Button 
+                    variant="outline" 
+                    className="w-full border-primary/30 hover:bg-primary/10" 
+                    onClick={() => handleDownload('png')}
+                    disabled={downloading}
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    {downloading ? 'Generating...' : 'PNG'}
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    className="w-full border-primary/30 hover:bg-primary/10" 
+                    onClick={() => handleDownload('jpg')}
+                    disabled={downloading}
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    {downloading ? 'Generating...' : 'JPG'}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ) : isPending ? (
+            <Card className="border-2 border-yellow-500/20 bg-yellow-500/5">
+              <CardContent className="pt-6 text-center">
+                <Clock className="w-12 h-12 mx-auto mb-3 text-yellow-500" />
+                <h3 className="text-lg font-semibold mb-1">Awaiting Verification</h3>
+                <p className="text-sm text-muted-foreground">
+                  Download will be available once your payment is verified.
+                </p>
+              </CardContent>
+            </Card>
+          ) : null}
 
           {/* Share Section */}
-          <Card className="border-2 border-primary/20 bg-gradient-to-br from-card via-card to-card/80">
-            <CardContent className="pt-6 space-y-4">
-              <div className="text-center mb-4">
-                <h3 className="text-lg font-semibold mb-1">Share Your Ticket</h3>
-                <p className="text-sm text-muted-foreground">Share with friends & on social media</p>
-              </div>
-              
-              <Button 
-                size="lg"
-                className="w-full bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70" 
-                onClick={handleShare}
-              >
-                <Share2 className="w-5 h-5 mr-2" />
-                Share Ticket
-              </Button>
+          {canDownload && !isPending && (
+            <Card className="border-2 border-primary/20 bg-gradient-to-br from-card via-card to-card/80">
+              <CardContent className="pt-6 space-y-4">
+                <div className="text-center mb-4">
+                  <h3 className="text-lg font-semibold mb-1">Share Your Ticket</h3>
+                  <p className="text-sm text-muted-foreground">Share with friends & on social media</p>
+                </div>
+                
+                <Button 
+                  size="lg"
+                  className="w-full bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70" 
+                  onClick={handleShare}
+                >
+                  <Share2 className="w-5 h-5 mr-2" />
+                  Share Ticket
+                </Button>
 
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <span className="w-full border-t border-border" />
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <span className="w-full border-t border-border" />
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase">
+                    <span className="bg-card px-2 text-muted-foreground">or share via</span>
+                  </div>
                 </div>
-                <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-card px-2 text-muted-foreground">or share via</span>
-                </div>
-              </div>
-              
-              <SocialShare 
-                url={window.location.href}
-                title={`Ticket for ${ticket.events.title}`}
-                description={`Check out my ticket for ${ticket.events.title}!`}
-              />
-            </CardContent>
-          </Card>
+                
+                <SocialShare 
+                  url={window.location.href}
+                  title={`Ticket for ${ticket.events.title}`}
+                  description={`Check out my ticket for ${ticket.events.title}!`}
+                />
+              </CardContent>
+            </Card>
+          )}
 
           {ticket.is_validated && (
             <div className="p-4 rounded-lg border-2 border-primary/30 bg-primary/10 text-center">
