@@ -21,7 +21,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft, Search, Download, Filter, RefreshCw, Ticket, Mail } from 'lucide-react';
+import { ArrowLeft, Search, Download, Filter, RefreshCw, Ticket, Mail, CheckCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { TicketActions } from '@/components/TicketActions';
@@ -39,6 +39,7 @@ const GlobalTickets = () => {
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [selectedTickets, setSelectedTickets] = useState<Set<string>>(new Set());
     const [bulkSending, setBulkSending] = useState(false);
+    const [verifying, setVerifying] = useState<string | null>(null);
 
     const fetchTickets = async () => {
         if (!user) return;
@@ -95,6 +96,7 @@ const GlobalTickets = () => {
     const getStatusColor = (ticket: any) => {
         if (ticket.is_validated) return 'bg-blue-500/10 text-blue-400 border-blue-500/20';
         switch (ticket.payment_status) {
+            case 'verified':
             case 'paid': return 'bg-green-500/10 text-green-400 border-green-500/20';
             case 'pay_at_venue': return 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20';
             case 'pending': return 'bg-orange-500/10 text-orange-400 border-orange-500/20';
@@ -165,6 +167,44 @@ const GlobalTickets = () => {
             toast.success(`Sent ${successCount} ticket(s) successfully`);
         } else {
             toast.warning(`Sent ${successCount}, failed ${failCount}`);
+        }
+    };
+
+    const handleVerifyPayment = async (ticketId: string, ticketEmail: string, ticketCode: string, eventTitle: string) => {
+        setVerifying(ticketId);
+        try {
+            const { error } = await supabase
+                .from('tickets')
+                .update({ 
+                    payment_status: 'verified',
+                    verified_at: new Date().toISOString()
+                })
+                .eq('id', ticketId);
+
+            if (error) throw error;
+
+            // Send verification email with ticket
+            try {
+                await supabase.functions.invoke('send-ticket-email', {
+                    body: {
+                        ticketId: ticketId,
+                        attendeeEmail: ticketEmail,
+                        ticketCode: ticketCode,
+                        eventTitle: eventTitle,
+                        isVerification: true
+                    },
+                });
+            } catch (emailError) {
+                console.error('Failed to send verification email:', emailError);
+            }
+
+            toast.success('Payment verified! Ticket sent to attendee.');
+            fetchTickets();
+        } catch (error: any) {
+            console.error('Error verifying payment:', error);
+            toast.error('Failed to verify payment');
+        } finally {
+            setVerifying(null);
         }
     };
 
@@ -271,9 +311,10 @@ const GlobalTickets = () => {
                                 <SelectContent>
                                     <SelectItem value="all">All Statuses</SelectItem>
                                     <SelectItem value="validated">Validated</SelectItem>
+                                    <SelectItem value="verified">Verified</SelectItem>
                                     <SelectItem value="paid">Paid</SelectItem>
                                     <SelectItem value="pay_at_venue">Pay at Venue</SelectItem>
-                                    <SelectItem value="pending">Pending</SelectItem>
+                                    <SelectItem value="pending">Pending Verification</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
@@ -315,26 +356,63 @@ const GlobalTickets = () => {
                                 </div>
                             ) : (
                                 filteredTickets.map((ticket) => (
-                                    <button
+                                    <div
                                         key={ticket.id}
-                                        onClick={() => openTicketDetails(ticket)}
-                                        className="w-full p-4 bg-muted/30 rounded-xl text-left active:scale-[0.98] transition-transform"
+                                        className="w-full p-4 bg-muted/30 rounded-xl text-left"
                                     >
-                                        <div className="flex justify-between items-start mb-2">
-                                            <div>
-                                                <p className="font-mono font-bold text-primary text-sm">{ticket.ticket_code}</p>
-                                                <p className="font-medium mt-1">{ticket.attendee_name}</p>
+                                        <button
+                                            onClick={() => openTicketDetails(ticket)}
+                                            className="w-full text-left active:scale-[0.98] transition-transform"
+                                        >
+                                            <div className="flex justify-between items-start mb-2">
+                                                <div>
+                                                    <p className="font-mono font-bold text-primary text-sm">{ticket.ticket_code}</p>
+                                                    <p className="font-medium mt-1">{ticket.attendee_name}</p>
+                                                </div>
+                                                <Badge variant="outline" className={cn("text-[10px]", getStatusColor(ticket))}>
+                                                    {getStatusText(ticket)}
+                                                </Badge>
                                             </div>
-                                            <Badge variant="outline" className={cn("text-[10px]", getStatusColor(ticket))}>
-                                                {getStatusText(ticket)}
-                                            </Badge>
-                                        </div>
-                                        <p className="text-xs text-muted-foreground truncate">{ticket.events?.title}</p>
-                                        <div className="flex justify-between items-center mt-2 text-xs text-muted-foreground">
-                                            <span>{ticket.attendee_email}</span>
-                                            <span>{format(new Date(ticket.created_at), 'MMM d')}</span>
-                                        </div>
-                                    </button>
+                                            <p className="text-xs text-muted-foreground truncate">{ticket.events?.title}</p>
+                                            <div className="flex justify-between items-center mt-2 text-xs text-muted-foreground">
+                                                <span>{ticket.attendee_email}</span>
+                                                <span>{format(new Date(ticket.created_at), 'MMM d')}</span>
+                                            </div>
+                                        </button>
+                                        
+                                        {/* Verify button for pending tickets on mobile */}
+                                        {ticket.payment_status === 'pending' && (
+                                            <div className="mt-3 pt-3 border-t border-border">
+                                                <div className="text-[10px] text-muted-foreground mb-2 font-mono">
+                                                    UTR: {ticket.payment_ref_id || 'N/A'}
+                                                </div>
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className="w-full border-green-500/50 text-green-500 hover:bg-green-500/10"
+                                                    onClick={() => handleVerifyPayment(
+                                                        ticket.id,
+                                                        ticket.attendee_email,
+                                                        ticket.ticket_code,
+                                                        ticket.events?.title
+                                                    )}
+                                                    disabled={verifying === ticket.id}
+                                                >
+                                                    {verifying === ticket.id ? (
+                                                        <>
+                                                            <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                                                            Verifying...
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <CheckCircle className="w-4 h-4 mr-2" />
+                                                            Verify Payment
+                                                        </>
+                                                    )}
+                                                </Button>
+                                            </div>
+                                        )}
+                                    </div>
                                 ))
                             )}
                         </div>
@@ -408,9 +486,42 @@ const GlobalTickets = () => {
                                                     </div>
                                                 </TableCell>
                                                 <TableCell>
-                                                    <Badge variant="outline" className={getStatusColor(ticket)}>
-                                                        {getStatusText(ticket)}
-                                                    </Badge>
+                                                    <div className="flex items-center gap-2">
+                                                        <Badge variant="outline" className={getStatusColor(ticket)}>
+                                                            {getStatusText(ticket)}
+                                                        </Badge>
+                                                        {ticket.payment_status === 'pending' && (
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                className="h-6 px-2 text-xs border-green-500/50 text-green-500 hover:bg-green-500/10"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleVerifyPayment(
+                                                                        ticket.id,
+                                                                        ticket.attendee_email,
+                                                                        ticket.ticket_code,
+                                                                        ticket.events?.title
+                                                                    );
+                                                                }}
+                                                                disabled={verifying === ticket.id}
+                                                            >
+                                                                {verifying === ticket.id ? (
+                                                                    <RefreshCw className="w-3 h-3 animate-spin" />
+                                                                ) : (
+                                                                    <>
+                                                                        <CheckCircle className="w-3 h-3 mr-1" />
+                                                                        Verify
+                                                                    </>
+                                                                )}
+                                                            </Button>
+                                                        )}
+                                                    </div>
+                                                    {ticket.payment_ref_id && ticket.payment_status === 'pending' && (
+                                                        <div className="text-[10px] text-muted-foreground mt-1 font-mono">
+                                                            UTR: {ticket.payment_ref_id}
+                                                        </div>
+                                                    )}
                                                 </TableCell>
                                                 <TableCell className="text-xs text-muted-foreground">
                                                     {format(new Date(ticket.created_at), 'MMM d, HH:mm')}

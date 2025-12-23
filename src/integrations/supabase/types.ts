@@ -359,9 +359,12 @@ export type Database = {
           event_id: string
           id: string
           is_validated: boolean
+          payment_ref_id: string | null
+          payment_status: string | null
           ticket_code: string
           tier_id: string | null
           validated_at: string | null
+          verified_at: string | null
         }
         Insert: {
           attendee_email: string
@@ -371,9 +374,12 @@ export type Database = {
           event_id: string
           id?: string
           is_validated?: boolean
+          payment_ref_id?: string | null
+          payment_status?: string | null
           ticket_code: string
           tier_id?: string | null
           validated_at?: string | null
+          verified_at?: string | null
         }
         Update: {
           attendee_email?: string
@@ -383,9 +389,12 @@ export type Database = {
           event_id?: string
           id?: string
           is_validated?: boolean
+          payment_ref_id?: string | null
+          payment_status?: string | null
           ticket_code?: string
           tier_id?: string | null
           validated_at?: string | null
+          verified_at?: string | null
         }
         Relationships: [
           {
